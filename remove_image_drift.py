@@ -14,10 +14,12 @@ import nd2_to_array as ndt
 from scipy.interpolate import UnivariateSpline
 from skimage.io import imread
 import os
+import time
+
 
 
 """
-Application of the nd2_to_array library to load .nd2 images or the Scikit-Image io linrary to load .tif images.
+Application of the nd2_to_array library to load .nd2 images or the scikit-image io linrary to load .tif images.
 """
 def load_image_arrays(ndtwo_path, xy_position, channel):
     
@@ -38,56 +40,81 @@ def load_tif_files(tif_directory):
 """
 Application of the cross correlation function frim Scikit-Image, to calculate  the phase drift between consecutive frames.
 """
-def generate_drift_sequence(images_dict, resolution, hard_threshold, mask_show):
+def generate_drift_sequence(images_dict, resolution, hard_threshold):
     
-    frame_n = max(images_dict.keys())
+    start_time = time.time()
     
-    phase_y = []
-    phase_x = []
+    frame_keys = sorted(images_dict.keys())
+    if len(frame_keys) < 2:
+        raise ValueError("Need at least two timepoints to compute drift.")
     
-    for fr in range(frame_n):
+    phase_y = [0.0]
+    phase_x = [0.0]
+    cum_y = [0.0]
+    cum_x = [0.0]
+    
+    for pre_k, next_k in zip(frame_keys[:-1], frame_keys[1:]):
         
-        image_before = images_dict[fr]
-        image_after =  images_dict[fr+1]
+        image_before = images_dict[pre_k]
+        image_after =  images_dict[next_k]
         
-        if hard_threshold == 'otsu':
-            otsu_before = threshold_otsu(image_before.ravel())
-            otsu_after = threshold_otsu(image_after.ravel())
-            otsu = np.mean([otsu_before, otsu_after])
-        elif type(hard_threshold)==int:
-            otsu = hard_threshold
-        elif hard_threshold == 'none':
-            print('')
+        use_masks = False
+        ref_mask = None
+        mov_mask = None
+        
+        if isinstance(hard_threshold, (int, np.integer)):
+            thr = int(hard_threshold)
+            use_masks = True
+            ref_mask = image_before < thr
+            mov_mask = image_after < thr
+    
+        elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'otsu':
+            thr_before = threshold_otsu(image_before)
+            thr_after = threshold_otsu(image_after)
+            thr = (thr_before + thr_after) / 2.0
+            use_masks = True
+            ref_mask = image_before < thr
+            mov_mask = image_after < thr
+    
+        elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'none':
+            use_masks = False
+    
         else:
-            raise ValueError(f'hard threshold value {hard_threshold} is not valid. Choose "otsu" or a phase contrast integer value. Choose "none" to avoid using binary masks for the drift estimation (default)')
+            raise ValueError(
+                f'hard_threshold value {hard_threshold} is not valid. '
+                'Choose "otsu", an integer, or "none" (default) to avoid using masks.'
+            )
+        
+        
+        shift, _, _ = phase_cross_correlation(
+            image_before,
+            image_after,
+            upsample_factor=resolution,
+            reference_mask=ref_mask if use_masks else None,
+            moving_mask=mov_mask if use_masks else None
+        )
     
-        if  type(hard_threshold)==int or hard_threshold == 'otsu':
-            phase_dif = phase_cross_correlation(image_before, image_after, 
-                                                upsample_factor=resolution,
-                                                reference_mask = image_before<otsu,
-                                                moving_mask = image_after<otsu)[0]
-        elif hard_threshold == 'none':
-            phase_dif = phase_cross_correlation(image_before, image_after, 
-                                                upsample_factor=resolution)[0]
-
-            
-        if mask_show == True:
-            plt.imshow((image_before<otsu)+(image_after<otsu))
-            plt.show()
+        # print(shift)
+        phase_x.append(float(shift[1]))
+        phase_y.append(float(shift[0]))
+        cum_x.append(cum_x[-1]+shift[1])
+        cum_y.append(cum_y[-1]+shift[0])
         
-        print(phase_dif)
-        
-        phase_x.append(phase_dif[0])
-        phase_y.append(phase_dif[1])
-        
-    return phase_x, phase_y
+        if pre_k%100 == 0:
+            current_time = time.time()
+            print(f'Computing drift: {pre_k} out of {len(frame_keys)} positions, {cum_x[-1]}, {cum_y[-1]}, {current_time-start_time:.2f} sec')
+    
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"Execution time: {execution_time:.2f} seconds")
+    return (np.array(phase_x), np.array(phase_y)), (np.array(cum_x), np.array(cum_y))
 
 
 
 """
 Methodologies to smooth the drifts
 """
-def rolling_smooth_dirfts(cum_phase_drift, window):
+def rolling_smooth_drifts(cum_phase_drift, window):
     
     drift_df = pd.DataFrame()
     drift_df['cum_drift_x'] = cum_phase_drift[0]
@@ -96,7 +123,7 @@ def rolling_smooth_dirfts(cum_phase_drift, window):
     
     return mean_df.cum_drift_x, mean_df.cum_drift_y
 
-def poly_smooth_dirfts(cum_phase_drift, degree):
+def poly_smooth_drifts(cum_phase_drift, degree):
     
     cum_phase_x = cum_phase_drift[0]
     cum_phase_y = cum_phase_drift[1]
@@ -109,7 +136,7 @@ def poly_smooth_dirfts(cum_phase_drift, degree):
     
     return cum_phase_x, cum_phase_y
 
-def univar_smooth_dirfts(cum_phase_drift, kappa, smoothing):
+def univar_smooth_drifts(cum_phase_drift, kappa, smoothing):
     
     cum_phase_x = cum_phase_drift[0]
     cum_phase_y = cum_phase_drift[1]
@@ -123,63 +150,87 @@ def univar_smooth_dirfts(cum_phase_drift, kappa, smoothing):
     return cum_phase_x, cum_phase_y
 
 
+def apply_smoothing(cum_x, cum_y, smooth_params):
+    
+    fit_x =cum_x[1:]
+    fit_y = cum_y[1:]
+    
+    if isinstance(smooth_params, list):
+        if smooth_params[0].lower() in ("rolling", "window", "mean"):
+            xs, ys = rolling_smooth_drifts((fit_x, fit_y), smooth_params[1])
+    
+        elif smooth_params[0].lower() in ("poly", "polynomial"):
+            xs, ys = poly_smooth_drifts((fit_x, fit_y), smooth_params[1])
+    
+        elif smooth_params[0].lower() in ("spline", "univariate", "univar"):
+            xs, ys = univar_smooth_drifts((fit_x, fit_y), smooth_params[1], smooth_params[2])
+
+        else:
+            raise ValueError("Unknown smoother. Use 'rolling', 'poly', 'spline', a callable, or None.")
+    elif smooth_params is None:
+            xs, ys = fit_x, fit_y
+    else:
+        raise ValueError("smoother must be a string, callable, or None.")
+    return [0]+list(xs), [0]+list(ys)
+
 
 """
 Subtraction of the smoothed cumulative phase drift using a cropping frame.
 """
-def apply_phase_correction(images_dict, phase_dif, smooth, smooth_factor):
+def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     
-    cum_phase_x = np.cumsum(phase_dif[0])
-    cum_phase_y = np.cumsum(phase_dif[1])
+    keys = sorted(images_dict.keys())
+    if len(keys) == 0:
+        return {}, None, (None, None)
     
-    plt.figure()
-    plt.plot(cum_phase_x, 'o', color='black', label ='x drift')
-    plt.plot(cum_phase_y, 'o', color='gray', label = 'y drift')
+    # Validate shapes
+    shapes = [images_dict[k].shape for k in keys]
+    H, W = shapes[0][0], shapes[0][1]
+    for s in shapes:
+        if s[0] != H or s[1] != W:
+            raise ValueError("All images must have the same height and width.")
     
-    if smooth == 'rolling':
-        cum_phase_x, cum_phase_y = rolling_smooth_dirfts((cum_phase_x, cum_phase_y), smooth_factor)
-        plt.plot(cum_phase_x, color='red', label ='moving av. x drift')
-        plt.plot(cum_phase_y, color='red', label = 'moving av. y drift')
-    elif smooth == 'poly':
-        cum_phase_x, cum_phase_y = poly_smooth_dirfts((cum_phase_x, cum_phase_y), smooth_factor)
-        plt.plot(cum_phase_x, color='red', label ='poly x drift')
-        plt.plot(cum_phase_y, color='red', label = 'poly y drift')
-    elif smooth == 'univar':
-        cum_phase_x, cum_phase_y = univar_smooth_dirfts((cum_phase_x, cum_phase_y), smooth_factor[0], smooth_factor[1])
-        plt.plot(cum_phase_x, color='red', label ='univar x drift')
-        plt.plot(cum_phase_y, color='red', label = 'univar y drift')
+    cum_x, cum_y = apply_smoothing(cum_x, cum_y, smooth_params)
+   
+    cum_x = np.asarray(cum_x, dtype=float)
+    cum_y = np.asarray(cum_y, dtype=float)
+    if cum_x.shape[0] != len(keys) or cum_y.shape[0] != len(keys):
+        raise ValueError("cum_x and cum_y must match number of frames (including leading 0).")
+    
+    # Quantize to integer-pixel shifts (cropping-only alignment)
+    if rounding == "nearest":
+        ix = np.rint(cum_x).astype(int)
+        iy = np.rint(cum_y).astype(int)
+    elif rounding == "floor":
+        ix = np.floor(cum_x).astype(int)
+        iy = np.floor(cum_y).astype(int)
+    elif rounding == "ceil":
+        ix = np.ceil(cum_x).astype(int)
+        iy = np.ceil(cum_y).astype(int)
     else:
-        print('No smoothing applied. Choose "rolling" for a moving average or "poly" for a polynomial fit.')
+        raise ValueError("rounding must be 'nearest', 'floor', or 'ceil'.")
     
-    plt.legend()
-    plt.show()
+    y0 = int(np.max(iy))
+    y1 = int(H + np.min(iy))
+    x0 = int(np.max(ix))
+    x1 = int(W + np.min(ix))
     
-    # min_x = int(np.min(cum_phase_x))
-    max_x = int(np.max(np.abs(cum_phase_x)))
-    # min_y = int(np.min(cum_phase_y))
-    max_y = int(np.max(np.abs(cum_phase_y)))
-    
-    cor_images_dict = {}
-    
-    for fr in images_dict:
+    if y1 <= y0 or x1 <= x0:
+        raise ValueError("Drift too large for given image size: no common overlap remains.")
         
-        img = images_dict[fr]
+    aligned = {}
+    for i, k in enumerate(keys):
+        img = images_dict[k]
+        # Source window in the original image that maps to [y0:y1, x0:x1] in aligned canvas
+        sy0 = y0 - iy[i]
+        sy1 = y1 - iy[i]
+        sx0 = x0 - ix[i]
+        sx1 = x1 - ix[i]
         
-        if fr == 0:
-            ph_x = 0 
-            ph_y = 0
-        elif fr > 0:
-            ph_x = int(cum_phase_x[fr-1])
-            ph_y = int(cum_phase_y[fr-1])
+        aligned[k] = img[sy0:sy1, sx0:sx1]
         
-        framed_img = img[max_y+ph_y:img.shape[0]-max_y+ph_y, 
-                         max_x+ph_x:img.shape[1]-max_x+ph_x]
-        
-        cor_images_dict[fr] = framed_img
-    
-    return cor_images_dict, (cum_phase_x, cum_phase_y)
-
-
+    return aligned, (y0, y1, x0, x1), (ix, iy)
+      
 
 """
 Visualization.
@@ -230,7 +281,3 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
-
-
-
-
