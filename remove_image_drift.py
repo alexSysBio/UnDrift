@@ -43,6 +43,8 @@ Generate drift to check the code
 def get_time_string(frame, digits=4):
     return (4-len(str(frame)))*'0'+str(frame)
 
+
+
 def simulate_drift(image_array, number_of_frames, padding, drift_std, save_path):
     
     x_drift = np.random.normal(loc=0, scale=drift_std, size=number_of_frames)
@@ -231,6 +233,7 @@ def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     if cum_x.shape[0] != len(keys) or cum_y.shape[0] != len(keys):
         raise ValueError("cum_x and cum_y must match number of frames (including leading 0).")
     
+    # Quantize to integer-pixel shifts (cropping-only alignment)
     if rounding == "nearest":
         ix = np.rint(cum_x).astype(int)
         iy = np.rint(cum_y).astype(int)
@@ -314,5 +317,3 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
-
-
