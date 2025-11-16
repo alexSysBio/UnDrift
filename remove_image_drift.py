@@ -63,7 +63,7 @@ def simulate_drift(image_array, number_of_frames, padding, drift_std, save_path)
         imsave(save_path+'/'+get_time_string(i)+'frame.tif', drift_dict[i])
         i+=1
         
-    return x_drift, y_drift
+    return x_drift, y_drift, drift_dict
 
 
 
@@ -314,4 +314,5 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
+
 
