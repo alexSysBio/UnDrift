@@ -183,7 +183,6 @@ def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     if len(keys) == 0:
         return {}, None, (None, None)
     
-    # Validate shapes
     shapes = [images_dict[k].shape for k in keys]
     H, W = shapes[0][0], shapes[0][1]
     for s in shapes:
@@ -197,7 +196,6 @@ def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     if cum_x.shape[0] != len(keys) or cum_y.shape[0] != len(keys):
         raise ValueError("cum_x and cum_y must match number of frames (including leading 0).")
     
-    # Quantize to integer-pixel shifts (cropping-only alignment)
     if rounding == "nearest":
         ix = np.rint(cum_x).astype(int)
         iy = np.rint(cum_y).astype(int)
@@ -281,3 +279,4 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
+
