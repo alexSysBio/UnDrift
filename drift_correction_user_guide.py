@@ -8,22 +8,25 @@ Created on Tue Jul  1 13:01:17 2025
 import remove_image_drift as drft
       
 ndtwo_path = ".../images.nd2"
+tif_directory = "/tif_images" # folder with exported .tif images. To export images use the "https://github.com/alexSysBio/NDtwoPy" repository
 
 # Open the fifth XY position and the Phase channel form the .nd2 file
 images_dict = drft.load_image_arrays(ndtwo_path, 5, 'Phase')
+# or
+images_dict = drft.load_tif_files(tif_directory)
 
 # Calculate image drift
-phase_drift = drft.generate_drift_sequence(images_dict, resolution=10, hard_threshold=27500, mask_show=False)
+phase_drift, cum_drift = drft.generate_drift_sequence(images_dict, resolution=1, None)
 
 # Get the cumulative drift and smooth
 # Univariate spline smoothing 
-cor_images_dict, cum_phase_drift = drft.apply_phase_correction(images_dict, phase_drift, 'univar', (2,50)) # kappa and s parameters 
+aligned, _, _ = apply_phase_correction(images_dict, cum_drift[0], cum_drift[1], "nearest", ["spline", 2, 50]) # kappa and s parameters 
 # or polynomial fit smoothing
-cor_images_dict, cum_phase_drift = drft.apply_phase_correction(images_dict, phase_drift, 'poly', 6) # polynomial degree
+aligned, _, _ = apply_phase_correction(images_dict, cum_drift[0], cum_drift[1], "nearest", ["poly", 50]) # polynomial degree
 # or moving average smoothing
-cor_images_dict, cum_phase_drift = drft.apply_phase_correction(images_dict, phase_drift, 'rolling', 3) # rolling window
+aligned, _, _ = apply_phase_correction(images_dict, cum_drift[0], cum_drift[1], "nearest", ["rolling", 10]) # rolling window
 # or no smoothing
-cor_images_dict, cum_phase_drift = drft.apply_phase_correction(images_dict, phase_drift, 'none', 'none') 
+aligned, _, _ = apply_phase_correction(images_dict, cum_drift[0], cum_drift[1], "nearest", None)
 
 
 # plot the corrected frames
@@ -37,5 +40,5 @@ fonts_color = 'white'
 save_path = "...\Drift_corrected_images"
 
 
-drft.create_movies(cor_images_dict, crop_pad, time_interval, scale, 
+drft.create_movies(aligned, crop_pad, time_interval, scale, 
                    time_stamp_pos, scale_bar_pos, fonts_sizes, fonts_color, save_path, show=False)
