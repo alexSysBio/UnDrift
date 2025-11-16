@@ -12,16 +12,24 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import nd2_to_array as ndt
 from scipy.interpolate import UnivariateSpline
-
+from skimage.io import imread
+import os
 
 """
-Application of the nd2_to_array library
+Application of the nd2_to_array library to load .nd2 images or application of the scikit-image io library to load .tif images
 """
 def load_image_arrays(ndtwo_path, xy_position, channel):
     
     return ndt.nd2_to_array(ndtwo_path)[2][xy_position-1][channel]
 
-
+def load_tif_files(tif_directory):
+    img_dict= {}
+    i = 0
+    for img_path in os.listdir(tif_directory):
+        img_dict[i] = imread(tif_directory+'/'+img_path)
+        i+=1
+    return img_dict
+        
 
 """
 Application of the cross correlation function frim Scikit-Image, to calculate  the phase drift between consecutive frames.
@@ -210,3 +218,4 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
+
