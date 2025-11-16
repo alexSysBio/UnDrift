@@ -8,7 +8,7 @@ Then the cumulative drift is calculated. The use can choose to smooth the cumula
 3. A univariate smoothing spline
 
 The smoothed or raw cumulative drifts are used to adjust the maximum possible cropping frame around the microscopy images.
-An example of the drift correction is shown below. The uncorrected movie is on the left, and the drif-corrected time-lapse movie is shown on the right:
+An example of the drift correction is shown below. The uncorrected movie is on the left (simulated drifts sampled from a Gaussian distribution with a mean of 0 and a standard deviation of 10 pixels), and the drif-corrected time-lapse movie is shown on the right:
 ![movie_example.gif](https://github.com/alexSysBio/image_drift_correction/blob/main/correction_example.gif)
 
 An example of using the functions provided in the repository is included in the 'drift_correction_user_guide.py' script.
