@@ -10,9 +10,9 @@ from skimage.filters import threshold_otsu
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import nd2_to_array as ndt
+# import nd2_to_array as ndt
 from scipy.interpolate import UnivariateSpline
-from skimage.io import imread
+from skimage.io import imread, imsave
 import os
 import time
 
@@ -35,6 +35,36 @@ def load_tif_files(tif_directory):
         i+=1
     return img_dict
         
+
+
+"""
+Generate drift to check the code
+"""
+def get_time_string(frame, digits=4):
+    return (4-len(str(frame)))*'0'+str(frame)
+
+def simulate_drift(image_array, number_of_frames, padding, drift_std, save_path):
+    
+    x_drift = np.random.normal(loc=0, scale=drift_std, size=number_of_frames)
+    y_drift = np.random.normal(loc=0, scale=drift_std, size=number_of_frames)
+    
+    drift_dict = {}
+    padding = int(padding)
+    H, W = image_array.shape
+    crop_pad = np.array([padding, W-padding+1, padding, H-padding+1]) #minx, maxxx, miny, maxy
+    drift_dict[0] = image_array[crop_pad[2]:crop_pad[3], crop_pad[0]:crop_pad[1]]
+    imsave(save_path+'/'+get_time_string(0)+'frame.tif', drift_dict[0])
+    
+    i = 1
+    for xd, yd in zip(x_drift, y_drift):
+        drift_array = np.array([int(xd), int(xd), int(yd), int(yd)])
+        crop_pad = crop_pad + drift_array
+        drift_dict[i] = image_array[crop_pad[2]:crop_pad[3], crop_pad[0]:crop_pad[1]]
+        imsave(save_path+'/'+get_time_string(i)+'frame.tif', drift_dict[i])
+        i+=1
+        
+    return x_drift, y_drift
+
 
 
 """
@@ -183,14 +213,19 @@ def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     if len(keys) == 0:
         return {}, None, (None, None)
     
+    # Validate shapes
     shapes = [images_dict[k].shape for k in keys]
     H, W = shapes[0][0], shapes[0][1]
     for s in shapes:
         if s[0] != H or s[1] != W:
             raise ValueError("All images must have the same height and width.")
     
+    plt.plot(cum_x)
+    plt.plot(cum_y)
     cum_x, cum_y = apply_smoothing(cum_x, cum_y, smooth_params)
-   
+    plt.plot(cum_x)
+    plt.plot(cum_y)
+    plt.show()
     cum_x = np.asarray(cum_x, dtype=float)
     cum_y = np.asarray(cum_y, dtype=float)
     if cum_x.shape[0] != len(keys) or cum_y.shape[0] != len(keys):
@@ -279,4 +314,3 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
-
