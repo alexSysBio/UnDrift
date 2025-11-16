@@ -15,21 +15,25 @@ from scipy.interpolate import UnivariateSpline
 from skimage.io import imread
 import os
 
+
 """
-Application of the nd2_to_array library to load .nd2 images or application of the scikit-image io library to load .tif images
+Application of the nd2_to_array library to load .nd2 images or the Scikit-Image io linrary to load .tif images.
 """
 def load_image_arrays(ndtwo_path, xy_position, channel):
     
     return ndt.nd2_to_array(ndtwo_path)[2][xy_position-1][channel]
 
+
 def load_tif_files(tif_directory):
     img_dict= {}
     i = 0
     for img_path in os.listdir(tif_directory):
+        print(img_path)
         img_dict[i] = imread(tif_directory+'/'+img_path)
         i+=1
     return img_dict
         
+
 
 """
 Application of the cross correlation function frim Scikit-Image, to calculate  the phase drift between consecutive frames.
@@ -52,13 +56,22 @@ def generate_drift_sequence(images_dict, resolution, hard_threshold, mask_show):
             otsu = np.mean([otsu_before, otsu_after])
         elif type(hard_threshold)==int:
             otsu = hard_threshold
+        elif hard_threshold == 'none':
+            print('')
         else:
-            raise ValueError(f'hard threshold value {hard_threshold} is not valid. Choose "otsu" or a phase contrast integer value')
+            raise ValueError(f'hard threshold value {hard_threshold} is not valid. Choose "otsu" or a phase contrast integer value. Choose "none" to avoid using binary masks for the drift estimation (default)')
+    
+        if  type(hard_threshold)==int or hard_threshold == 'otsu':
+            phase_dif = phase_cross_correlation(image_before, image_after, 
+                                                upsample_factor=resolution,
+                                                reference_mask = image_before<otsu,
+                                                moving_mask = image_after<otsu)
+        elif hard_threshold == 'none':
+            phase_dif = phase_cross_correlation(image_before, image_after, 
+                                                upsample_factor=resolution)
+                                                # reference_mask = image_before<otsu,
+                                                # moving_mask = image_after<otsu)
             
-        phase_dif = phase_cross_correlation(image_before, image_after, 
-                                            upsample_factor=resolution, 
-                                            reference_mask = image_before<otsu,
-                                            moving_mask = image_after<otsu)
         if mask_show == True:
             plt.imshow((image_before<otsu)+(image_after<otsu))
             plt.show()
@@ -218,4 +231,5 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
+
 
