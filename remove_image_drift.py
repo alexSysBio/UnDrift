@@ -69,8 +69,7 @@ def generate_drift_sequence(images_dict, resolution, hard_threshold, mask_show):
         elif hard_threshold == 'none':
             phase_dif = phase_cross_correlation(image_before, image_after, 
                                                 upsample_factor=resolution)
-                                                # reference_mask = image_before<otsu,
-                                                # moving_mask = image_after<otsu)
+
             
         if mask_show == True:
             plt.imshow((image_before<otsu)+(image_after<otsu))
@@ -231,5 +230,6 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
+
 
 
