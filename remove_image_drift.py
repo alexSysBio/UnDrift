@@ -15,7 +15,7 @@ from scipy.interpolate import UnivariateSpline
 from skimage.io import imread, imsave
 import os
 import time
-
+import pickle
 
 
 """
@@ -268,6 +268,11 @@ def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     return aligned, (y0, y1, x0, x1), (ix, iy)
       
 
+def save_drift_statistics(drift_save_path, ix, iy):
+    with open(drift_save_path+'/cumulative_drift_lists', 'wb') as handle:
+        pickle.dump([ix, iy], handle)
+        
+
 """
 Visualization.
 """
@@ -317,3 +322,4 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
 
     
     
+
