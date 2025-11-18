@@ -16,6 +16,8 @@ from skimage.io import imread, imsave
 import os
 import time
 import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 
 """
@@ -79,82 +81,90 @@ def simulate_drift(image_array, number_of_frames, padding, drift_std, save_path)
 """
 Application of the cross correlation function frim Scikit-Image, to calculate  the phase drift between consecutive frames.
 """
-def generate_drift_sequence(images_dict, resolution, hard_threshold, masks_path='none'):
-    
+def compute_drift_pair(pre_k, next_k, images_dict, resolution, hard_threshold, masks_path='none'):
+    image_before = images_dict[pre_k]
+    image_after =  images_dict[next_k]
+
+    use_masks = False
+    ref_mask = None
+    mov_mask = None
+
+    if isinstance(hard_threshold, (int, np.integer)):
+        thr = int(hard_threshold)
+        use_masks = True
+        ref_mask = image_before < thr
+        mov_mask = image_after < thr
+
+    elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'otsu':
+        thr_before = threshold_otsu(image_before)
+        thr_after = threshold_otsu(image_after)
+        thr = (thr_before + thr_after) / 2.0
+        use_masks = True
+        ref_mask = image_before < thr
+        mov_mask = image_after < thr
+
+    elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'mask':
+        use_masks = True
+        ref_mask = get_masked_image(pre_k, masks_path)>0
+        mov_mask = get_masked_image(next_k, masks_path)>0
+
+    elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'none':
+        use_masks = False
+
+    else:
+        raise ValueError(
+            f'hard_threshold value {hard_threshold} is not valid. '
+            'Choose "otsu", an integer, or "none" (default) to avoid using masks.'
+        )
+
+    shift, _, _ = phase_cross_correlation(
+        image_before,
+        image_after,
+        upsample_factor=resolution,
+        reference_mask=ref_mask if use_masks else None,
+        moving_mask=mov_mask if use_masks else None
+    )
+    frame = int(next_k[next_k.find('_t')+2:next_k.find('_t')+7])
+    return (float(shift[1]), float(shift[0]), frame)
+
+
+def generate_drift_sequence(images_dict, resolution, hard_threshold, masks_path='none', n_jobs=6):
     start_time = time.time()
-    
     frame_keys = sorted(images_dict.keys())
     if len(frame_keys) < 2:
         raise ValueError("Need at least two timepoints to compute drift.")
-    
+
     phase_y = [0.0]
     phase_x = [0.0]
     cum_y = [0.0]
     cum_x = [0.0]
+
+    pairs = list(zip(frame_keys[:-1], frame_keys[1:]))
+
+    results = [None] * len(pairs)
+    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+        future_to_idx = {
+            executor.submit(compute_drift_pair, pre_k, next_k, images_dict, resolution, hard_threshold, masks_path): idx
+            for idx, (pre_k, next_k) in enumerate(pairs)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            results[idx] = future.result()
     
-    for pre_k, next_k in zip(frame_keys[:-1], frame_keys[1:]):
-        
-        image_before = images_dict[pre_k]
-        image_after =  images_dict[next_k]
-        
-        use_masks = False
-        ref_mask = None
-        mov_mask = None
-        
-        if isinstance(hard_threshold, (int, np.integer)):
-            thr = int(hard_threshold)
-            use_masks = True
-            ref_mask = image_before < thr
-            mov_mask = image_after < thr
-    
-        elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'otsu':
-            thr_before = threshold_otsu(image_before)
-            thr_after = threshold_otsu(image_after)
-            thr = (thr_before + thr_after) / 2.0
-            use_masks = True
-            ref_mask = image_before < thr
-            mov_mask = image_after < thr
-        
-        elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'mask':
-            use_masks = True
-            ref_mask = get_masked_image(pre_k, masks_path)>0
-            mov_mask = get_masked_image(next_k, masks_path)>0
-    
-        elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'none':
-            use_masks = False
-    
-        else:
-            raise ValueError(
-                f'hard_threshold value {hard_threshold} is not valid. '
-                'Choose "otsu", an integer, or "none" (default) to avoid using masks.'
-            )
-        
-        
-        shift, _, _ = phase_cross_correlation(
-            image_before,
-            image_after,
-            upsample_factor=resolution,
-            reference_mask=ref_mask if use_masks else None,
-            moving_mask=mov_mask if use_masks else None
-        )
-    
-        # print(shift)
-        phase_x.append(float(shift[1]))
-        phase_y.append(float(shift[0]))
-        cum_x.append(cum_x[-1]+shift[1])
-        cum_y.append(cum_y[-1]+shift[0])
-        
-        frame = int(next_k[next_k.find('_t')+2:next_k.find('_t')+7])
-        # print(frame)
-        if frame%100 == 0:
+    for idx, (dx, dy, frame) in enumerate(results):
+        phase_x.append(dx)
+        phase_y.append(dy)
+        cum_x.append(cum_x[-1] + dx)
+        cum_y.append(cum_y[-1] + dy)
+
+        if frame % 100 == 0:
             current_time = time.time()
             print(f'Computing drift: {frame} out of {len(frame_keys)} positions, {cum_x[-1]}, {cum_y[-1]}, {current_time-start_time:.2f} sec')
-    
+
     end_time = time.time()
     execution_time = end_time - start_time
     print(f"Execution time: {execution_time:.2f} seconds")
     return (np.array(phase_x), np.array(phase_y)), (np.array(cum_x), np.array(cum_y))
-
 
 
 """
