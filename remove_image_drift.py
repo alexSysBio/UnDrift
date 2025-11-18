@@ -10,7 +10,7 @@ from skimage.filters import threshold_otsu
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import nd2_to_array as ndt
+from NDtwoPy import nd2_to_array as ndt
 from scipy.interpolate import UnivariateSpline
 from skimage.io import imread, imsave
 import os
@@ -29,12 +29,19 @@ def load_image_arrays(ndtwo_path, xy_position, channel):
 def load_tif_files(tif_directory):
     img_dict= {}
     i = 0
-    for img_path in os.listdir(tif_directory):
-        print(img_path)
-        img_dict[i] = imread(tif_directory+'/'+img_path)
+    imgs_paths_list = os.listdir(tif_directory)
+    imgs_paths_list = sorted([x for x in imgs_paths_list if '.tif' in x])
+    for img_path in imgs_paths_list:
+        print(img_path[:-4])
+        img_dict[img_path[:-4]] = imread(tif_directory+'/'+img_path)
         i+=1
     return img_dict
         
+
+def get_masked_image(image_id, masks_path):
+    masks = os.listdir(masks_path)
+    mask_path = [x for x in masks if image_id in x][0]
+    return imread(masks_path+'/'+mask_path)
 
 
 """
@@ -72,7 +79,7 @@ def simulate_drift(image_array, number_of_frames, padding, drift_std, save_path)
 """
 Application of the cross correlation function frim Scikit-Image, to calculate  the phase drift between consecutive frames.
 """
-def generate_drift_sequence(images_dict, resolution, hard_threshold):
+def generate_drift_sequence(images_dict, resolution, hard_threshold, masks_path='none'):
     
     start_time = time.time()
     
@@ -107,6 +114,11 @@ def generate_drift_sequence(images_dict, resolution, hard_threshold):
             use_masks = True
             ref_mask = image_before < thr
             mov_mask = image_after < thr
+        
+        elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'mask':
+            use_masks = True
+            ref_mask = get_masked_image(pre_k, masks_path)>0
+            mov_mask = get_masked_image(next_k, masks_path)>0
     
         elif isinstance(hard_threshold, str) and hard_threshold.lower() == 'none':
             use_masks = False
@@ -132,9 +144,11 @@ def generate_drift_sequence(images_dict, resolution, hard_threshold):
         cum_x.append(cum_x[-1]+shift[1])
         cum_y.append(cum_y[-1]+shift[0])
         
-        if pre_k%100 == 0:
+        frame = int(next_k[next_k.find('_t')+2:next_k.find('_t')+7])
+        # print(frame)
+        if frame%100 == 0:
             current_time = time.time()
-            print(f'Computing drift: {pre_k} out of {len(frame_keys)} positions, {cum_x[-1]}, {cum_y[-1]}, {current_time-start_time:.2f} sec')
+            print(f'Computing drift: {frame} out of {len(frame_keys)} positions, {cum_x[-1]}, {cum_y[-1]}, {current_time-start_time:.2f} sec')
     
     end_time = time.time()
     execution_time = end_time - start_time
@@ -300,12 +314,13 @@ def create_movies(drift_corrected_images_dict, crop_pad, time_interval, scale,
     drift_cor_images_dict = drift_corrected_images_dict
 
     for fr in drift_cor_images_dict:
+        tm = int(fr[fr.find('_t')+2:fr.find('_t')+7])
         img = drift_cor_images_dict[fr]
         crop_img = img[crop_pad[1]:crop_pad[3], crop_pad[0]:crop_pad[2]]
         plt.figure(figsize=((crop_pad[2]-crop_pad[0])/100,(crop_pad[3]-crop_pad[1])/100))
         plt.imshow(crop_img, cmap='gray')
         
-        time = fr*time_interval #min
+        time = tm*time_interval #min
         time_stamp = get_time_stamp(time)
         
         plt.text(*time_stamp_pos,time_stamp, fontsize=fonts_sizes, color=fonts_color)
