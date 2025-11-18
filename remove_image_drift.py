@@ -167,6 +167,8 @@ def generate_drift_sequence(images_dict, resolution, hard_threshold, masks_path=
     return (np.array(phase_x), np.array(phase_y)), (np.array(cum_x), np.array(cum_y))
 
 
+
+
 """
 Methodologies to smooth the drifts
 """
@@ -292,9 +294,15 @@ def apply_phase_correction(images_dict, cum_x, cum_y, rounding, smooth_params):
     return aligned, (y0, y1, x0, x1), (ix, iy)
       
 
-def save_drift_statistics(drift_save_path, ix, iy):
-    with open(drift_save_path+'/cumulative_drift_lists', 'wb') as handle:
-        pickle.dump([ix, iy], handle)
+def save_drift_statistics(drift_save_path, rect_crop, cum_drifts):
+    with open(drift_save_path+'/drift_statistics', 'wb') as handle:
+        pickle.dump([rect_crop, cum_drifts], handle)
+        
+
+def load_drift_statistics(drift_save_path):
+    with open(drift_save_path+'/drift_statistics', 'rb') as handle:
+        rect_crop, cum_drifts = pickle.load(handle)
+    return rect_crop, cum_drifts
         
 
 """
